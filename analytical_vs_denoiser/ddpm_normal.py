@@ -29,15 +29,23 @@ class ScoreNet(nn.Module):
         ]
         for _ in range(num_layers - 1):
             layers += [nn.Linear(hidden_dim, hidden_dim, dtype=dtype), nn.ReLU()]
-        layers.append(nn.Linear(hidden_dim, input_dim, dtype=dtype))
+        layers.append(nn.Linear(hidden_dim, 2, dtype=dtype))
 
-        self.time_net = nn.Sequential(
-            nn.Linear(1, time_embedding, dtype=dtype),
+        # self.time_net = nn.Sequential(
+        #     nn.Linear(1, time_embedding, dtype=dtype),
+        #     nn.ReLU(),
+        #     nn.Linear(time_embedding, time_embedding, dtype=dtype),
+        #     nn.ReLU(),
+        #     nn.Linear(time_embedding, time_embedding, dtype=dtype),
+        # )
+
+        layers = [
+            nn.Linear(1, hidden_dim, dtype=dtype),
             nn.ReLU(),
-            nn.Linear(time_embedding, time_embedding, dtype=dtype),
-            nn.ReLU(),
-            nn.Linear(time_embedding, time_embedding, dtype=dtype),
-        )
+        ]
+        for _ in range(num_layers - 1):
+            layers += [nn.Linear(hidden_dim, hidden_dim, dtype=dtype), nn.ReLU()]
+        layers.append(nn.Linear(hidden_dim, 2, dtype=dtype))
 
         self.net = nn.Sequential(*layers)
         self.dtype = dtype
@@ -45,9 +53,11 @@ class ScoreNet(nn.Module):
         print(f"# Params: {sum(p.numel() for p in self.parameters())}")
 
     def forward(self, x, t):
-        t = self.time_net(t)
-        x = torch.cat([x, t], dim=1)
-        return self.net(x)
+        out = self.net(t)
+        a = out[:, 0].unsqueeze(1)
+        b = out[:, 1].unsqueeze(1)
+        x = a * x + b
+        return x
 
 
 def get_diffusion_hyperparams(T, beta_start, beta_end, device):
@@ -55,6 +65,10 @@ def get_diffusion_hyperparams(T, beta_start, beta_end, device):
     alphas = 1 - betas
     alpha_bars = torch.cumprod(alphas, dim=0)
     return betas, alphas, alpha_bars
+
+
+def score_func(mu, x, alpha_bar_t, std):
+    return (mu * torch.sqrt(alpha_bar_t) - x) / (alpha_bar_t * (std**2 - 1) + 1)
 
 
 def create_normal_distribution(num_points=1000, mean=0.0, std=1.0):
@@ -216,9 +230,14 @@ def visualize_results(
 
         samples = samples.flatten()
         sample_mean = samples.mean()
+        sample_var = samples.var()
+
+        # Calculate expected mean and variance for normal distribution with exp(theta x) twist
+        true_mean = base_mean + theta * (base_std**2)
+        true_var = base_std**2  # Variance remains the same for the normal distribution
+
         plt.subplot(1, num_plots, i + 1)
         plt.hist(samples, bins=100, alpha=0.7, density=True)
-        true_mean = base_mean + theta * (base_std**2)
 
         min_x = true_mean - 3 * base_std
         max_x = true_mean + 3 * base_std
@@ -235,9 +254,9 @@ def visualize_results(
         plt.axvline(true_mean, color="red", label="True Mean")
 
         plt.title(
-            "Theta: {:.2f}\nSample Mean: {:.4f}\nTrue Mean: {:.4f}".format(
-                theta, sample_mean, true_mean
-            )
+            f"$\\theta$={theta:.2f}\n"
+            f"$\\hat{{\mu}}$={sample_mean:.4f} | $\\mu$={true_mean:.4f}\n"
+            f"$\\hat{{\sigma}}^2$={sample_var:.4f} | $\\sigma^2$={true_var:.4f}\n"
         )
 
         plt.xlabel("Value")
@@ -275,16 +294,16 @@ def main():
     global THRESHOLD
 
     TRAIN = 0
-    step = 200
-    ckpt = "model_{step}.pth"
+    step = 125
+    ckpt = "model_normal_linear_{step}.pth"
 
     # Hyperparameters
     T = 1000  # total number of diffusion steps
     beta_start = 0.0001
     beta_end = 0.014
 
-    THRESHOLD = 100
-    theta_vals = [0, 0.2]
+    THRESHOLD = 10000
+    theta_vals = [-2, -1, 0, 1, 2]
     num_samples = 50000
     num_samples = 10000
 
@@ -316,7 +335,6 @@ def main():
 
     model = ScoreNet(input_dim=1, dtype=torch.float64).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    # Create scheduler and load its state
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
 
     if step:

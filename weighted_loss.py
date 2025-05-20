@@ -16,8 +16,8 @@ class ScoreNet(nn.Module):
         input_dim=1,
         time_embedding=16,
         theta_embedding=16,
-        hidden_dim=128,
-        num_layers=3,
+        hidden_dim=256,
+        num_layers=4,
     ):
         super(ScoreNet, self).__init__()
         layers = [
@@ -262,8 +262,9 @@ def main():
     beta_start = 0.0001
     beta_end = 0.02
 
-    num_samples = 15000
-    num_points = 100000
+    num_samples = 25000
+    num_samples = 10000
+    num_points = 250000
     batch_size = 10000
 
     num_epochs = 500
@@ -278,8 +279,10 @@ def main():
     dist = create_normal_distribution(num_points=num_points, mean=4, std=1.0)
 
     # Define a set of theta values.
-    theta_values = np.linspace(-1, 1, 5)
+    theta_values = np.linspace(-3, 3, 9)
     print("theta_values:", theta_values.tolist())
+    # theta_values = np.linspace(-3, 3, 17)
+    # print("theta_values:", theta_values.tolist())
 
     model = ScoreNet(input_dim=1).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

@@ -1,0 +1,101 @@
+\documentclass[11pt, a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry} % Set margins to 1 inch
+\usepackage{hyperref} % Optional: for hyperlinks
+\usepackage{titling} % Package for title customization
+
+% Title spacing customization
+\setlength{\droptitle}{-4em} % Reduces space before title
+\pretitle{\begin{center}\Large\bfseries} % Smaller title font
+\posttitle{\par\end{center}\vskip 0.5em} % Reduces space after title
+
+% Document Information
+\title{Score of a Bounded Distributions}
+\begin{document}
+
+\maketitle
+
+\section{Bounded Distribution}
+Let $x_0 \sim B(a, b)$ be a bounded distribution, with p.d.f. $p(x)$. We will derive the score function for $p_t$, where $p_t$ is the probability density function of $x_t$, with:
+
+\[
+x_t = \sqrt{\bar{\alpha_t}} x_0 + \sqrt{1 - \bar{\alpha}_t} \varepsilon \quad \text{where} \varepsilon \sim \mathcal{N}(0, I)
+\]
+
+\noindent So, $p_t$ has the closed form:
+\begin{align*}
+p_t(x | y) &= \frac{1}{\sqrt{2 \pi} \sigma_t} \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2 \sigma_t^2}\right)\\[1em]
+\implies \quad p_t(x) &= \frac{1}{\sqrt{2 \pi} \sigma_t} \int_{a}^{b} p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy
+\end{align*}
+
+\vspace{1em}
+\noindent Then, the score function is given by:
+\begin{align*}
+s_t(x) &= \nabla_x \log p_t(x)\\[1em]
+&= \dfrac{\nabla_x p_t(x)}{p_t(x)}\\[1em]
+&= \dfrac{\displaystyle \int_{a}^{b} \left(\frac{\sqrt{\bar{\alpha_t}}y - x}{\sigma_t^2} \right) p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}{\displaystyle \int_{a}^{b} p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}\\[1em]
+&= \dfrac{1}{\sigma_t^2} \left(\sqrt{\bar{\alpha_t}}m(x) - x \right)\\[1em]
+&= \dfrac{1}{1 - \bar{\alpha_t}} \left(\sqrt{\bar{\alpha_t}}m(x) - x \right)
+\end{align*}
+
+\noindent where $m(x)$ is give by:
+\begin{align*}
+m(x) &= \dfrac{\displaystyle \int_{a}^{b} y p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}{\displaystyle \int_{a}^{b} p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}\\[1em]
+\end{align*}
+
+\noindent Now, we will analyse 3 cases:
+\begin{itemize}
+  \item $\bar{\alpha}_t \rightarrow 0$
+  \item $x >> b$
+  \item $x << a$
+\end{itemize}
+
+\subsection{Case 1: $\bar{\alpha}_t \rightarrow 0$}
+In this case, we simply get:
+\[
+  s_t(x) \approx -x
+\]
+
+\vspace{2em}
+\subsection{Case 2: $x >> b$}
+Recall $m(x)$:
+\[
+m(x) = \dfrac{\displaystyle \int_{a}^{b} y p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}{\displaystyle \int_{a}^{b} p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}
+\]
+
+\noindent Let $q(y|x)$ be the conditional distribution of $y$ given $x$. Then, we can write:
+\[
+  q(y|x) = \dfrac{p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right)}{\displaystyle \int_{a}^{b} p(y) \exp\left(-\frac{(x - \sqrt{\bar{\alpha}_t} y)^2}{2\sigma_t^2}\right) dy}
+\]
+
+\noindent So, we can write $m(x)$ as:
+\[
+m(x) = \int_{a}^{b} y q(y|x) dy = \mathbb{E}[y|x]
+\]
+
+\noindent Now if $x >> b$, then $q(y|x)$ has most of its mass at $y = b$. So, we can approximate:
+\[
+m(x) \approx b
+\]
+
+\noindent Thus, we have:
+\[
+s_t(x) = \frac{\sqrt{\bar{\alpha_t}} \cdot b - x}{\sigma_t^2}
+\]
+
+\vspace{2em}
+\subsection{Case 3: $x << a$}
+In this case, we can use the same argument as in Case 2. Thus:
+
+\[
+  s_t(x) = \frac{\sqrt{\bar{\alpha_t}} \cdot a - x}{\sigma_t^2}
+\]
+
+
+\end{document}
