@@ -7,6 +7,6 @@
 cd $PBS_O_WORKDIR
 
 source ../venv/bin/activate
-python twist_shift_incremental.py
+python twist_weighted_incremental.py
 
 wait
