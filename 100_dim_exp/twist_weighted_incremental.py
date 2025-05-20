@@ -23,7 +23,7 @@ from dist import (
 sample = ddpm_sample
 
 TARGET_THETA = None  # This is initialised in __main__
-THETA_STEPS = 1
+THETA_STEPS = 2
 BOUNDED = False  # This is initialised in __main__
 
 
@@ -86,7 +86,7 @@ def train(
 
         scheduler.step()
 
-        if epoch == num_epochs or epoch % 25 == 0:
+        if epoch == num_epochs or epoch % 50 == 0:
             theta_zero = torch.zeros_like(theta)
             samples = sample(
                 model,
@@ -146,7 +146,7 @@ def train(
 
 
 def main():
-    TRAIN = 0
+    TRAIN = True
 
     if BOUNDED:
         ckpt = "model_weighted_bounded_incremental/theta_{theta_index}/epoch_{step}.pth"
@@ -167,7 +167,6 @@ def main():
     beta_end = 0.012
 
     num_samples = 250_000
-    num_samples = 1_000_000
     num_points = 2_000_000
     batch_size = 50_000
 
@@ -175,7 +174,7 @@ def main():
     dim = 100
     dtype = torch.float64
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     torch.set_default_dtype(dtype)
 
     betas, alphas, alpha_bars = scaled_linear_beta_schedule(
@@ -213,6 +212,9 @@ def main():
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         losses = checkpoint["losses"]
 
+    threshold = 50.5 if BOUNDED else 28
+    theta = find_theta(dist.cpu().numpy(), threshold)
+    theta = torch.tensor(theta, dtype=dtype, device=device)
 
     last_dist = dist
     if step != 0 and theta_index != 0:
@@ -224,16 +226,17 @@ def main():
             alpha_bars,
             T,
             device,
-            theta=torch.zeros_like(dist),
+            theta=torch.zeros_like(theta),
             dim=dim,
             bounded=BOUNDED,
         )
         last_dist = samples
 
+
     if TRAIN:
         while theta_index < THETA_STEPS:
             theta = (
-                TARGET_THETA * ((theta_index + 1) / THETA_STEPS) * torch.ones_like(dist)
+                TARGET_THETA * ((theta_index + 1) / THETA_STEPS) * torch.ones_like(theta)
             )
             print(theta.max().item())
             print((theta**2).sum().sqrt().item())
@@ -255,7 +258,7 @@ def main():
                 theta,
                 T,
                 device,
-                ckpt=ckpt.format(theta_index=theta_index),
+                ckpt=ckpt.format(theta_index=theta_index, step="{step}"),
                 png_file=png_file.format(theta_index=theta_index),
                 losses_file=losses_file.format(theta_index=theta_index),
                 num_epochs=num_epochs,
@@ -317,7 +320,7 @@ def main():
     else:
         model.eval()
 
-        theta_zero = torch.zeros_like(dist) # `theta` here is the one from the last iteration of the loop
+        theta_zero = torch.zeros((num_samples, dim), dtype=dtype, device=device) # `theta` here is the one from the last iteration of the loop
         samples = sample(
             model,
             num_samples,
@@ -333,7 +336,7 @@ def main():
 
         # `theta` from the last loop iteration needs to be numpy for rejection_sampling
         # `dist` (the original data) should be converted to numpy here for rejection_sampling
-        final_theta_numpy = theta.cpu().numpy()
+        final_theta_numpy = ((theta_index + 1)/TARGET_THETA * torch.ones((num_samples, dim), dtype=dtype, device=device)).cpu().numpy()
         original_dist_numpy = dist.cpu().numpy()
 
         inp_dist = rejection_sampling(original_dist_numpy, num_samples, theta=final_theta_numpy)
