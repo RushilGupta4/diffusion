@@ -12,7 +12,7 @@ def create_multivariate_normal(
     dim: int = 9,
     random_state: int | None = None,
     dtype: torch.dtype = torch.float64,
-) -> np.ndarray:
+) -> torch.Tensor:
     if random_state is not None:
         np.random.seed(random_state)
         torch.manual_seed(random_state)
@@ -55,6 +55,56 @@ def create_multivariate_normal(
     # ---------- sample ----------
     z_np = np.random.multivariate_normal(
         mean=np.zeros(dim),
+        cov=R,
+        size=num_points,
+    )
+
+    return torch.tensor(z_np, dtype=dtype)
+
+
+def create_twisted_multivariate_normal(
+    theta: np.ndarray,
+    num_points: int = 1000,
+    dim: int = 9,
+    random_state: int | None = None,
+    dtype: torch.dtype = torch.float64,
+) -> torch.Tensor:
+    if random_state is not None:
+        np.random.seed(random_state)
+        torch.manual_seed(random_state)
+
+    if dim == 1:
+        z = np.random.normal(size=num_points)
+        z = torch.tensor(z, dtype=dtype).unsqueeze(1)
+        return z
+
+    rho_path = f"npy/rhos_{dim}.npy"
+    file_dir = os.path.dirname(rho_path)
+    if not os.path.exists(file_dir):
+        os.makedirs(file_dir)
+
+    num_rhos = dim * (dim - 1) // 2
+    if not os.path.exists(rho_path):
+        raise FileNotFoundError(f"The file {rho_path} wasn't found")
+    rhos = np.load(rho_path)
+    if rhos.shape[0] != num_rhos:
+        raise ValueError(
+            f"Stored rhos_{dim}.npy has wrong length "
+            f"{rhos.shape[0]} (expected {num_rhos}). "
+            "Delete the file to regenerate."
+        )
+
+    R = np.eye(dim)
+    tri_rows, tri_cols = np.triu_indices(dim, k=1)
+    R[tri_rows, tri_cols] = rhos
+    R[tri_cols, tri_rows] = rhos  # symmetry
+
+    # The mean of the distribution is the cov matrix * theta
+    mean = R @ theta
+
+    # ---------- sample ----------
+    z_np = np.random.multivariate_normal(
+        mean=mean,
         cov=R,
         size=num_points,
     )

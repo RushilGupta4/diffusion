@@ -17,6 +17,7 @@ from dist import (
     compare_dist,
     rejection_sampling,
     create_multivariate_beta_using_copula,
+    create_twisted_multivariate_normal
 )
 
 
@@ -25,6 +26,7 @@ sample = ddpm_sample
 TARGET_THETA = None  # This is initialised in __main__
 THETA_STEPS = 2
 BOUNDED = False  # This is initialised in __main__
+dtype = torch.float64
 
 
 def train(
@@ -86,8 +88,13 @@ def train(
 
         scheduler.step()
 
+        epoch_loss /= dataset_size * T
+        print(f"Epoch {epoch}/{num_epochs}, Loss: {epoch_loss:.8f}")
+
+
         if epoch == num_epochs or epoch % 50 == 0:
             theta_zero = torch.zeros_like(theta)
+            batch_size = dataset_size // num_batches
             samples = sample(
                 model,
                 num_samples,
@@ -99,12 +106,22 @@ def train(
                 theta=theta_zero,
                 dim=dim,
                 bounded=bounded,
+                batch_size=batch_size*2
             )
 
             # Compare with input distribution using rejection sampling
-            inp_dist = rejection_sampling(
-                dist.cpu().numpy(), num_samples, theta=theta.cpu().numpy()
-            )
+            if BOUNDED:
+                inp_dist = rejection_sampling(
+                    dist.cpu().numpy(), num_samples, theta=theta.cpu().numpy()
+                )
+            else:
+                inp_dist = create_twisted_multivariate_normal(
+                    theta=theta.cpu().numpy(),
+                    num_points=num_samples,
+                    dim=dim,
+                    dtype=dtype,
+                ).cpu().numpy()
+
             diff, distance = compare_dist(samples, inp_dist)
             for key, value in distance.items():
                 print(f"{key}: {value:.4f}", end=" | ")
@@ -141,9 +158,6 @@ def train(
                 path=losses_file,
             )
 
-        epoch_loss /= dataset_size * T
-        print(f"Epoch {epoch}/{num_epochs}, Loss: {epoch_loss:.8f}")
-
 
 def main():
     TRAIN = True
@@ -160,21 +174,20 @@ def main():
     step = 0
     theta_index = 0
 
-    num_epochs = 100
+    num_epochs = 200
 
     T = 1000
     beta_start = 0.00085
     beta_end = 0.012
 
-    num_samples = 250_000
+    num_samples = 200_000
     num_points = 2_000_000
     batch_size = 50_000
 
     learning_rate = 1e-4
     dim = 100
-    dtype = torch.float64
 
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.set_default_dtype(dtype)
 
     betas, alphas, alpha_bars = scaled_linear_beta_schedule(
@@ -195,7 +208,7 @@ def main():
     # theta = torch.tensor(theta, dtype=dtype, device=device)
 
     # current_step = 0
-    model = ScoreNet(input_dim=dim, dtype=dtype, device=device)
+    model = ScoreNet(input_dim=dim, dtype=dtype, device=device, time_dim=64, num_layers=3)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -229,14 +242,18 @@ def main():
             theta=torch.zeros_like(theta),
             dim=dim,
             bounded=BOUNDED,
+            batch_size=batch_size*2,
         )
-        last_dist = samples
+        last_dist = torch.tensor(last_dist, dtype=dtype, device=device)
 
 
     if TRAIN:
         while theta_index < THETA_STEPS:
-            theta = (
+            effective_theta = (
                 TARGET_THETA * ((theta_index + 1) / THETA_STEPS) * torch.ones_like(theta)
+            )
+            theta = (
+                (TARGET_THETA / THETA_STEPS) * torch.ones_like(theta)
             )
             print(theta.max().item())
             print((theta**2).sum().sqrt().item())
@@ -255,7 +272,7 @@ def main():
                 alphas,
                 alpha_bars,
                 num_samples,
-                theta,
+                effective_theta,
                 T,
                 device,
                 ckpt=ckpt.format(theta_index=theta_index, step="{step}"),
@@ -280,6 +297,7 @@ def main():
                 theta=theta_zero,
                 dim=dim,
                 bounded=BOUNDED,
+                batch_size=batch_size*2,
             )
 
             # The `theta` here is the tensor for the current iteration: (TARGET_THETA * ((theta_index + 1) / THETA_STEPS) * torch.ones_like(dist))
@@ -288,7 +306,15 @@ def main():
             current_iter_theta_numpy = theta.cpu().numpy()
             original_dist_numpy = dist.cpu().numpy()
 
-            inp_dist = rejection_sampling(original_dist_numpy, num_samples, theta=current_iter_theta_numpy)
+            if BOUNDED:
+                inp_dist = rejection_sampling(original_dist_numpy, last_dist.shape[0], theta=current_iter_theta_numpy)
+            else:
+                inp_dist = create_twisted_multivariate_normal(
+                    theta=current_iter_theta_numpy,
+                    num_points=last_dist.shape[0],
+                    dim=dim,
+                    dtype=dtype
+                ).cpu().numpy()
             diff, distance = compare_dist(samples, inp_dist)
             for key, value in distance.items():
                 print(f"{key}: {value:.4f}", end=" | ")
@@ -307,10 +333,10 @@ def main():
                 path=png_file_path,
             )
 
-            last_dist = samples
+            last_dist = torch.tensor(samples, dtype=dtype, device=device)
             theta_index += 1
 
-            model = ScoreNet(input_dim=dim, dtype=dtype, device=device)
+            model = ScoreNet(input_dim=dim, dtype=dtype, device=device, time_dim=64, num_layers=3)
             optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, num_epochs, eta_min=1e-6
@@ -332,6 +358,7 @@ def main():
             theta=theta_zero,
             dim=dim,
             bounded=BOUNDED,
+            batch_size=batch_size*2,
         )
 
         # `theta` from the last loop iteration needs to be numpy for rejection_sampling
@@ -339,7 +366,15 @@ def main():
         final_theta_numpy = ((theta_index + 1)/TARGET_THETA * torch.ones((num_samples, dim), dtype=dtype, device=device)).cpu().numpy()
         original_dist_numpy = dist.cpu().numpy()
 
-        inp_dist = rejection_sampling(original_dist_numpy, num_samples, theta=final_theta_numpy)
+        if BOUNDED:
+            inp_dist = rejection_sampling(original_dist_numpy, num_samples, theta=final_theta_numpy)
+        else:
+            inp_dist = create_twisted_multivariate_normal(
+                theta=final_theta_numpy,
+                num_points=num_samples,
+                dim=dim,
+                dtype=dtype
+            ).cpu().numpy()
         diff, distance = compare_dist(samples, inp_dist)
         for key, value in distance.items():
             print(f"{key}: {value:.4f}", end=" | ")

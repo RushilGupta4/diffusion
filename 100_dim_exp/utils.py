@@ -66,7 +66,11 @@ def ddpm_sample(
     theta,
     dim,
     bounded=False,
+    batch_size=None
 ):
+    if batch_size is None:
+        batch_size = num_samples
+
     model.eval()
 
     # if type of theta is not torch.Tensor, convert it to torch.Tensor
@@ -75,35 +79,43 @@ def ddpm_sample(
     else:
         theta_tensor = theta.to(device, dtype=model.dtype)
 
-    x = torch.randn(num_samples, dim, device=device, dtype=model.dtype)
+    # Initialize array to store all samples
+    all_samples = []
+    
+    # Process samples in batches
+    for i in range(0, num_samples, batch_size):
+        current_batch_size = min(batch_size, num_samples - i)
+        x = torch.randn(current_batch_size, dim, device=device, dtype=model.dtype)
 
-    with tqdm(total=T, desc="DDPM Sampling") as pbar:
+        with tqdm(total=T, desc=f"DDPM Sampling (Batch {i//batch_size + 1}/{(num_samples + batch_size - 1)//batch_size})") as pbar:
+            for t in reversed(range(1, T)):
+                t_tensor = torch.full(
+                    (current_batch_size, 1), t / T, device=device, dtype=model.dtype
+                )
+                beta_t = betas[t]
+                alpha_t = alphas[t]
+                alpha_bar_t = alpha_bars[t]
+                alpha_bar_prev = alpha_bars[t - 1]
 
-        for t in reversed(range(1, T)):
-            t_tensor = torch.full(
-                (num_samples, 1), t / T, device=device, dtype=model.dtype
-            )
-            beta_t = betas[t]
-            alpha_t = alphas[t]
-            alpha_bar_t = alpha_bars[t]
-            alpha_bar_prev = alpha_bars[t - 1]
+                score = get_score(
+                    model, x, theta_tensor, t_tensor, alpha_bar_t, current_batch_size, bounded
+                )
 
-            score = get_score(
-                model, x, theta_tensor, t_tensor, alpha_bar_t, num_samples, bounded
-            )
+                z = torch.randn_like(x)
+                x0 = (1 / torch.sqrt(alpha_bar_t)) * (x + score * (1 - alpha_bar_t))
 
-            z = torch.randn_like(x)
-            x0 = (1 / torch.sqrt(alpha_bar_t)) * (x + score * (1 - alpha_bar_t))
+                mu = (
+                    torch.sqrt(alpha_t) * (1 - alpha_bar_prev) / (1 - alpha_bar_t)
+                ) * x + (torch.sqrt(alpha_bar_prev) * beta_t / (1 - alpha_bar_t)) * x0
+                noise = torch.sqrt(beta_t * (1 - alpha_bar_prev) / (1 - alpha_bar_t)) * z
+                x = mu + noise
 
-            mu = (
-                torch.sqrt(alpha_t) * (1 - alpha_bar_prev) / (1 - alpha_bar_t)
-            ) * x + (torch.sqrt(alpha_bar_prev) * beta_t / (1 - alpha_bar_t)) * x0
-            noise = torch.sqrt(beta_t * (1 - alpha_bar_prev) / (1 - alpha_bar_t)) * z
-            x = mu + noise
+                pbar.update(1)
+        
+        all_samples.append(x.cpu().numpy())
 
-            pbar.update(1)
-
-    return x.cpu().numpy()
+    # Concatenate all batches
+    return np.concatenate(all_samples, axis=0)
 
 
 def plot_losses(losses, path):

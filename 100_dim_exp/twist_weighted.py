@@ -153,7 +153,7 @@ def main():
     else:
         BOUNDED = False
 
-    TRAIN = 0
+    TRAIN = True
 
     if BOUNDED:
         ckpt = "model_weighted_bounded/epoch_{step}.pth"
@@ -164,16 +164,16 @@ def main():
         png_file = "model_weighted/comparison.png"
         losses_file = "model_weighted/losses.png"
 
-    step = 200
-    num_epochs = 500
+    step = 0
+    num_epochs = 100
 
     T = 1000
     beta_start = 0.00085
     beta_end = 0.012
 
     num_samples = 250_000
-    num_samples = 1_000_000
-    num_points = 5_000_000 if TRAIN else num_samples * 5
+    num_samples = 500_000
+    num_points = 2_000_000 if TRAIN else num_samples * 5
     batch_size = 50_000
 
     learning_rate = 1e-4
@@ -199,14 +199,14 @@ def main():
     threshold = 50.5 if BOUNDED else 28
     theta = find_theta(dist.cpu().numpy(), threshold)
     theta = torch.tensor(theta, dtype=dtype, device=device)
-    theta = (0.41613638401031494 if BOUNDED else 0.24622570723295212) * torch.ones_like(
+    theta = (0.41613638401031494 if BOUNDED else 0.24622570723295212) * 4 * torch.ones_like(
         theta
     )
     weights = torch.exp(torch.sum(theta.view(1, -1) * dist, dim=1, keepdim=True))
 
     print(theta.max().item())
     print((theta**2).sum().sqrt().item())
-    model = ScoreNet(input_dim=dim, dtype=dtype, device=device)
+    model = ScoreNet(input_dim=dim, dtype=dtype, device=device, num_layers=3, time_dim=32)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
